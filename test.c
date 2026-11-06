@@ -2,15 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TEST(x) #x
-
-// Found at
-// https://stackoverflow.com/questions/2751870/how-exactly-does-the-double-stringize-trick-work
-#define _PARA(...) #__VA_ARGS__ // Macro to do the stringize
-// #define PARA(...) _PARA(<p>__VA_ARGS__</p>) // Make the preprocessor expand all args first
-#define BOLD(...) <b>__VA_ARGS__</b>
-
-#define PARA(...) append_string(&html_string, _PARA(<p>__VA_ARGS__</p>)) 
+#include "html_macros.h"
 
 #define ERROR(...) do { fprintf(stderr, __VA_ARGS__); exit(EXIT_FAILURE);} while(0)
 #define ABORT(...) do { fprintf(stderr, __VA_ARGS__); abort();} while(0)
@@ -51,11 +43,34 @@ void append_string(STRING *parent, const char *append){
 int main(int argc, char **argv){
     STRING html_string = {0};
 
+    BODY( html_string,
     PARA(This is some text.);
 
     PARA(This is some more text, with a comma and a BOLD BOLD(word));
 
+    PARA(This is a para with a BOLD(LINK("https://google.com", google link)));
+    PARA(LINK("/colophon", BOLD(colophon)));
+
+    PARA(Call foo PAREN(x, y) then index arr`BRACKET(0) and use BRACE(1, 2, 3).);
+    PARA(Type ANGLE(div) to open a block, or use a SLASH()SLASH() comment.);
+    PARA(Use CDQQ(smart quotes) and don&rsquo;t forget the AMP() sign.);
+
+    PARA(Divide a SLASH() b, escape with BSLASH()n, comment out with SLASH()STAR() ... STAR()SLASH().);
+    );
     puts(html_string.str);
     free(html_string.str);
     return 0;
 }
+
+// ideal fn
+//
+//void index(){
+// 	STRING html_string = {0}
+// 	PROLOGUE(html_string, nakulbhat/)
+// 	BODY(html_string,
+// 		PARA(...);
+// 		PARA(...);
+// 	);
+// 	EPILOGUE(html_string);
+// 	write_string(filename, html_string);
+// }
