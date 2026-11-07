@@ -1,6 +1,6 @@
 CC     ?= cc
-CFLAGS  = -std=gnu11 -Wall -Wextra -Wshadow -Iinclude
-LIB     = src/html_string.c src/html_render.c src/html_validate.c
+CFLAGS  = -std=gnu11 -Wall -Wextra -Wshadow -Iinclude --embed-dir=.
+LIB     = src/html_string.c src/html_render.c src/html_validate.c src/assets.c
 
 all: html_demo
 
