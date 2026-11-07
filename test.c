@@ -2,8 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "html_macros.h"
-
 #define ERROR(...) do { fprintf(stderr, __VA_ARGS__); exit(EXIT_FAILURE);} while(0)
 #define ABORT(...) do { fprintf(stderr, __VA_ARGS__); abort();} while(0)
 
@@ -37,28 +35,62 @@ void append_string(STRING *parent, const char *append){
 
 }
 
+#include "html_macros.h"
 
+int main(void){
+    STRING raw = {0}, out = {0};
 
+    BODY(raw,
+        PARA(Some BOLD(bold) text and a LINK("https://google.com", link).)
 
-int main(int argc, char **argv){
-    STRING html_string = {0};
+             PARA(
+        CODE(
+            RAW(0, #include <stdio.h>)
+            RAW(0, )
+            RAW(0, int main(int argc, char **argv){)
+            RAW(4, printf("Hello, world!");)
+            RAW(4, if(argc < 2 && argv) return 1;)
+            RAW(0, })
+        )
+             )
 
-    BODY( html_string,
-    PARA(This is some text.);
-
-    PARA(This is some more text, with a comma and a BOLD BOLD(word));
-
-    PARA(This is a para with a BOLD(LINK("https://google.com", google link)));
-    PARA(LINK("/colophon", BOLD(colophon)));
-
-    PARA(Call foo PAREN(x, y) then index arr`BRACKET(0) and use BRACE(1, 2, 3).);
-    PARA(Type ANGLE(div) to open a block, or use a SLASH()SLASH() comment.);
-    PARA(Use CDQQ(smart quotes) and don&rsquo;t forget the AMP() sign.);
-
-    PARA(Divide a SLASH() b, escape with BSLASH()n, comment out with SLASH()STAR() ... STAR()SLASH().);
+        PARA(Back to prose.)
     );
-    puts(html_string.str);
-    free(html_string.str);
+
+    puts("---- intermediate ----");
+    puts(raw.str);
+
+    render(&out, raw.str);
+    puts("---- rendered ----");
+    puts(out.str);
+
+#ifdef CODE_GCC
+    STRING raw2 = {0}, out2 = {0};
+
+    BODY(raw2,
+        PARA(GNU raw string:)
+        CODE_GCC(R"(
+#include <stdio.h>
+int main(void){
+    // comment survives
+    printf("Hello, world!\n");
+}
+)")
+    );
+
+    puts("---- GCC intermediate ----");
+    puts(raw2.str);
+
+    render(&out2, raw2.str);
+    puts("---- GCC rendered ----");
+    puts(out2.str);
+
+    free(raw2.str);
+    free(out2.str);
+#endif
+
+    free(raw.str);
+    free(out.str);
     return 0;
 }
 
