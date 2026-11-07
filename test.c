@@ -27,6 +27,13 @@ static const struct { const char *name; unsigned cat, allows; } TAGS[] = {
 
 #define NTAGS (sizeof TAGS / sizeof TAGS[0])
 
+static int find_tag(const char *s, size_t n){
+    for(size_t i = 0; i < NTAGS; i++)
+        if(strlen(TAGS[i].name) == n && !strncmp(TAGS[i].name, s, n))
+            return (int)i;
+    return -1;
+}
+
 typedef struct {
     char *str;
     size_t len, cap;
@@ -34,6 +41,7 @@ typedef struct {
 
 typedef struct {
     const char *src, *p;
+    const char *last;
     int errors, in_a;
 } PARSER;
 
@@ -48,67 +56,6 @@ static char *read_file(const char *path, size_t *n);
 static void verr(PARSER *ps, const char *at, const char *fmt, ...);
 static void parse_content(PARSER *ps, int parent);
 static int find_tag(const char *s, size_t n);
-
-int main(void){
-    STRING raw = {0}, out = {0};
-
-    BODY(raw,
-        PARA(Some BOLD(bold) text and a LINK("https://google.com", link).)
-
-             PARA(
-        CODE(
-            RAW(0, #include <stdio.h>)
-            RAW(0, )
-            RAW(0, int main(int argc, char **argv){)
-            RAW(4, printf("Hello, world!");)
-            RAW(4, if(argc < 2 && argv) return 1;)
-            RAW(0, })
-        )
-             )
-        PARA(Use CODEINLINE(if(a < b && c)) to compare.)
-        // CODEFILE("test.c", 1, 10, 'l')
-        // CODEFILE("test.c", 1, 0, 'l')    // whole file
-        // CODEFILE("test.c", 1, 64, 'b')   // first 64 bytes
-
-        PARA(Back to prose.)
-    );
-
-    puts("---- intermediate ----");
-    puts(raw.str);
-
-    render(&out, raw.str);
-    puts("---- rendered ----");
-    puts(out.str);
-
-#ifdef CODE_GCC
-    STRING raw2 = {0}, out2 = {0};
-
-    BODY(raw2,
-        PARA(GNU raw string:)
-        CODE_GCC(R"(
-#include <stdio.h>
-int main(void){
-    // comment survives
-    printf("Hello, world!\n");
-}
-)")
-    );
-
-    puts("---- GCC intermediate ----");
-    puts(raw2.str);
-
-    render(&out2, raw2.str);
-    puts("---- GCC rendered ----");
-    puts(out2.str);
-
-    free(raw2.str);
-    free(out2.str);
-#endif
-
-    free(raw.str);
-    free(out.str);
-    return 0;
-}
 
 void grow_string(STRING *string, int cap){
     if(!string) ERROR("grow_string() called without string");
@@ -326,15 +273,26 @@ static void append_file_range(STRING *out, const char *path,
     free(buf);
 }
 
+// Reports the first error only: prints from the last tag to the error point
+// (plus the rest of the offending tag, if the error is a tag itself).
 static void verr(PARSER *ps, const char *at, const char *fmt, ...){
-    int ln = 1;
-    for(const char *c = ps->src; c < at; c++) if(*c == '\n') ln++;
-    fprintf(stderr, "html error (line %d): ", ln);
+    if(ps->errors++) return;                       // stop after the first error
+
+    fprintf(stderr, "html error: ");
     va_list ap; va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
     va_end(ap);
     fputc('\n', stderr);
-    ps->errors++;
+
+    const char *from = ps->last ? ps->last : ps->src;
+    if(from > at) from = at;
+    const char *to = at;
+    if(*to == '<'){                                 // include the offending tag
+        while(*to && *to != '>') to++;
+        if(*to) to++;
+    }
+    fprintf(stderr, "  context: %.*s\n", (int)(to - from), from);
+    fprintf(stderr, "  %*s^\n", 11 + (int)(at - from), "");   // caret under the error
 }
 
 // Parses the content of one element (parent = index into TAGS, or -1 for top
@@ -419,15 +377,95 @@ int validate_html(const char *html){
     return ps.errors;
 }
 
-// ideal fn
-//
-//void index(){
-// 	STRING html_string = {0}
-// 	PROLOGUE(html_string, nakulbhat/)
-// 	BODY(html_string,
-// 		PARA(...);
-// 		PARA(...);
-// 	);
-// 	EPILOGUE(html_string);
-// 	write_string(filename, html_string);
-// }
+// Each case: rendered HTML and how many errors validate_html should report.
+static const struct { const char *name, *html; int expect; } CASES[] = {
+    { "valid document",
+      "<body><p>Hi <b>bold</b> &amp; <a href=\"x\">link</a></p> "
+      "<pre><code>a &lt;b</code></pre></body>", 0 },
+
+    { "pre inside p (PARA(CODE(...)))",
+      "<body><p><pre><code>x</code></pre></p></body>", 1 },
+
+    { "p inside p",
+      "<body><p><p>x</p></p></body>", 1 },
+
+    { "a inside a",
+      "<body><p><a>x<a>y</a></a></p></body>", 1 },
+
+    { "text directly in pre",
+      "<body><pre>text</pre></body>", 1 },
+
+    { "b inside pre",
+      "<body><pre><b>x</b></pre></body>", 1 },
+
+    { "stray < in prose",
+      "<body><p>a < b</p></body>", 1 },
+
+    { "bare & in prose",
+      "<body><p>a & b</p></body>", 1 },
+
+    { "unknown tag",
+      "<body><p><span>x</span></p></body>", 2 },   // open and close both flagged
+
+    { "mismatched closer",
+      "<body><p>x</b></p></body>", 1 },
+
+    { "unclosed p",
+      "<body><p>x</body>", 3 },   // unexpected </body>, p never closed, body never closed
+
+    { "text outside body",
+      "hello", 1 },
+};
+
+int main(void){
+    int failed = 0;
+    size_t ncases = sizeof CASES / sizeof CASES[0];
+
+    // ---- Part 1: direct tests on rendered HTML ----
+    for(size_t i = 0; i < ncases; i++){
+        printf("[%s]\n", CASES[i].name);
+        int got = validate_html(CASES[i].html);
+        if(got == CASES[i].expect){
+            printf("  PASS (%d errors)\n", got);
+        } else {
+            printf("  FAIL: expected %d errors, got %d\n", CASES[i].expect, got);
+            failed++;
+        }
+    }
+
+    // ---- Part 2: through the real macro pipeline ----
+    {
+        STRING raw = {0}, out = {0};
+        BODY(raw,
+            PARA(Some BOLD(bold) text and CODEINLINE(a < b).)
+            CODE(
+                RAW(0, int main(void){)
+                RAW(4, return 1 < 2 && 3 > 2;)
+                RAW(0, })
+            )
+        );
+        render(&out, raw.str);
+        printf("[pipeline: valid macros]\n");
+        int got = validate_html(out.str);
+        if(got == 0) printf("  PASS\n"); else { printf("  FAIL: %d errors\n", got); failed++; }
+        free(raw.str); free(out.str);
+    }
+    {
+        STRING raw = {0}, out = {0};
+        BODY(raw,
+            PARA(
+                CODE(
+                    RAW(0, int x;)
+                )
+            )
+        );
+        render(&out, raw.str);
+        printf("[pipeline: PARA(CODE(...)) must be rejected]\n");
+        int got = validate_html(out.str);
+        if(got == 1) printf("  PASS\n"); else { printf("  FAIL: expected 1, got %d\n", got); failed++; }
+        free(raw.str); free(out.str);
+    }
+
+    printf("\n%s (%d failed)\n", failed ? "SOME TESTS FAILED" : "ALL TESTS PASSED", failed);
+    return failed ? EXIT_FAILURE : EXIT_SUCCESS;
+}
