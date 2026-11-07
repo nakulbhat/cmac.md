@@ -50,10 +50,10 @@
 
 #endif
 
-#define CODEINLINE(...)  <code>RAW_I_ __VA_ARGS__ RAW_IE_</code>
+#define CODEINLINE(...)  <code>RAW_IB_ __VA_ARGS__ RAW_IE_</code>
 
 // CODEFILE("path", begin, end, 'l')   mode: 'l'ines, 'b'ytes, 'c'hars (UTF-8)
-#define CODEFILE(file, b, e, m)  <pre><code>RAW_F_ file b e m RAW_FE_</code></pre>
+#define CODEFILE(file, b, e, m)  <pre><code>RAW_FB_ file b e m RAW_FE_</code></pre>
 
 // LINK should be only used as LINK("https://google.com", google).
 // Without the string literal, C won't allow // and html won't work with &sol;
