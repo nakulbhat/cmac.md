@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <string.h>
 
 #include "html_render.h"
@@ -12,6 +13,41 @@ static void append_escaped_html_string(STRING *s, const char *in, size_t len){
         default:  append_char(s, in[i]);
         }
     }
+}
+
+// Writes one attribute from the text `name="value"` (or just `name` for
+// boolean attributes). Validates the name, requires a quoted value, and
+// escapes & < > and " inside the value.
+static void append_attr(STRING *out, const char *s, size_t len){
+    const char *end = s + len;
+    const char *eq = memchr(s, '=', len);
+    const char *name_end = eq ? eq : end;
+
+    if(name_end == s) ERROR("ATTR: missing attribute name");
+    for(const char *p = s; p < name_end; p++){
+        if(!isalnum((unsigned char)*p) && *p != '-' && *p != '_'
+                                       && *p != ':' && *p != '.')
+            ERROR("ATTR: invalid character '%c' in attribute name", *p);
+    }
+    for(const char *p = s; p < name_end; p++) append_char(out, *p);
+
+    if(!eq) return; // boolean attribute, e.g. ATTR_BOOL(hidden)
+
+    const char *v = eq + 1;
+    if(end - v < 2 || *v != '"' || end[-1] != '"')
+        ERROR("ATTR: value must be a quoted string");
+
+    append_string(out, "=\"");
+    for(const char *p = v + 1; p < end - 1; p++){
+        switch(*p){
+        case '<': append_string(out, "&lt;");   break;
+        case '>': append_string(out, "&gt;");   break;
+        case '&': append_string(out, "&amp;");  break;
+        case '"': append_string(out, "&quot;"); break;
+        default:  append_char(out, *p);
+        }
+    }
+    append_char(out, '"');
 }
 
 static char *read_whole_file(const char *path, size_t *n){
@@ -91,9 +127,18 @@ void render(STRING *out, const char *in){
     const char *IE = " RAW_IE_"; // RAW Inline End
     const char *FB = "RAW_FB_ "; // RAW File Begin
     const char *FE = " RAW_FE_"; // RAW File End
+    const char *AB = "ATTR_B_ "; // ATTR Begin
+    const char *AE = "ATTR_E_";  // ATTR End (matched without its leading space)
     size_t rb = strlen(RB), gb = strlen(GB), ge = strlen(GE);
     size_t ib = strlen(IB), ie = strlen(IE), fb = strlen(FB), fe = strlen(FE);
+    size_t ab = strlen(AB), ae = strlen(AE);
     (void)RE; // the RAW end marker is matched without its leading space (see below)
+
+    // Tag tracking, used to decide whether an ATTR is legal at this point.
+    // can_attr is set right after an opening tag's '>' and cleared by anything
+    // that isn't whitespace or another ATTR. gt_pos is where that '>' sits in out.
+    int in_tag = 0, closing = 0, can_attr = 0;
+    size_t gt_pos = 0;
 
     while(*in){
         if(!strncmp(in, RB, rb)){ // Regular RAW macro
@@ -101,6 +146,7 @@ void render(STRING *out, const char *in){
             // We have to process "RAW_B_ 4 This is indented 4 spaces RAW_E_"
             // Some cases have RAW(0, ) which gives "RAW_B_ 0 RAW_E_"
 
+            can_attr = 0;
             in += rb; // jump forward by marker width
 
             // Extract indent level and skip th number itself
@@ -131,6 +177,7 @@ void render(STRING *out, const char *in){
             // essentially the same process as above, but does not care for indents, as
             // raw strings are written to string literals 
 
+            can_attr = 0;
             in += gb;
             const char *end = strstr(in, GE);
             if(!end) ERROR("unterminated CODE_GCC");
@@ -144,6 +191,7 @@ void render(STRING *out, const char *in){
         else if(!strncmp(in, IB, ib)){ // Inline RAW
             // Not much to do here, just check for termination
             // and escape chars.
+            can_attr = 0;
             in += ib;
             const char *end = strstr(in, IE);
             if(!end) ERROR("unterminated CODEINLINE");
@@ -153,6 +201,7 @@ void render(STRING *out, const char *in){
         else if(!strncmp(in, FB, fb)){ // File RAW
             // filename has to be a string literal, otherwise it may be
             // split up by the compiler.
+            can_attr = 0;
             in += fb;
             if(*in != '"') ERROR("CODEFILE: filename must be a string literal");
 
@@ -183,8 +232,52 @@ void render(STRING *out, const char *in){
             append_file_range(out, path, b, e, mode);
             in = fend + fe;
         }
+        else if(!strncmp(in, AB, ab)){ // ATTR macro
+            // We have to process <p>ATTR_B_ id="golden" ATTR_E_text
+            // The attribute is spliced into the opening tag that precedes it,
+            // so it is only legal while can_attr is set (directly after an
+            // opening tag, with nothing but whitespace or other ATTRs between).
+
+            if(!can_attr) ERROR("ATTR must directly follow an opening tag");
+            in += ab;
+
+            const char *end = strstr(in, AE);
+            if(!end) ERROR("unterminated ATTR");
+            size_t len = (size_t)(end - in);
+            if(len && end[-1] == ' ') len--; // defensively remove space before "ATTR_E_"
+
+            // Rewind to the tag's '>' (this also drops any whitespace that was
+            // copied after it), then re-emit " attr>" so chained ATTRs work.
+            out->len = gt_pos;
+            append_char(out, ' ');
+            append_attr(out, in, len);
+            append_char(out, '>');
+            gt_pos = out->len - 1;
+
+            in = end + ae;
+            if(*in == ' ') in++; // Skip the extra joining space, same as RAW
+        }
         else {
-            append_char(out, *in++);
+            char c = *in++;
+
+            // Track tag boundaries. Closing tags and comments/doctype
+            // (</..., <!...) never accept attributes.
+            if(c == '<'){
+                in_tag = 1;
+                closing = (*in == '/' || *in == '!');
+                can_attr = 0;
+            }
+
+            append_char(out, c);
+
+            if(in_tag && c == '>'){
+                in_tag = 0;
+                can_attr = !closing;
+                gt_pos = out->len - 1;
+            }
+            else if(!in_tag && !isspace((unsigned char)c)){
+                can_attr = 0; // text between the tag and ATTR_B_: too late
+            }
         }
     }
 }

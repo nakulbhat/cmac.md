@@ -62,6 +62,17 @@
 // These macros can be used instead for macro expansion
 #define SQQ(...)  &apos;__VA_ARGS__&apos;
 #define DQQ(...)  &quot;__VA_ARGS__&quot;
+//
+// Attributes must come first inside the element they belong to:
+//     PARA(ID(golden) CLASS(intro) text here)  ->  <p id="golden" class="intro">text here</p>
+// ATTR(name, "value") takes a literal name and a quoted string value.
+// ATTR_BOOL(name) emits a valueless attribute such as `hidden` or `disabled`.
+#define ATTR(name, ...)  ATTR_B_ name=__VA_ARGS__ ATTR_E_
+#define ATTR_BOOL(name)  ATTR_B_ name ATTR_E_
+
+// Shortcuts: the argument is stringized, so write ID(golden), not ID("golden")
+#define ID(x)     ATTR(id, #x)
+#define CLASS(x)  ATTR(class, #x)
 
 /********************************L0 Macros*************************************/
 #define SQ()      &apos;

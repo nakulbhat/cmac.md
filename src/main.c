@@ -10,8 +10,8 @@ int main(void){
     STRING raw = {0}, out = {0};
 
     BODY(raw,
-        PARA(Hello, BOLD(world) and CODEINLINE(a < b).)
-        CODE(
+        PARA( ID(golden) Hello, BOLD(world) and CODEINLINE(a < b).)
+        CODE( ID(golden) 
             RAW(0, #include <stdio.h>)
             RAW(0, )
             RAW(0, int main(void){)
