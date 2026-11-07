@@ -1,6 +1,5 @@
-// html_chars.h
-#ifndef HTML_CHARS_H
-#define HTML_CHARS_H
+#ifndef HTML_MACROS_H
+#define HTML_MACROS_H
 
 // All macros will have to follow this hierarchy
 //
@@ -21,7 +20,7 @@
 // bodies
 #define BODY(html_string, ...)                                 \
     append_string(&html_string,                                \
-                  "<body>" _STRINGIZE(__VA_ARGS__) "</body>") 
+                  "<body>" _STRINGIZE(__VA_ARGS__) "</body>")
 
 
 /********************************L1 Macros*************************************/
@@ -34,7 +33,7 @@
 // Code block should be written as follows:
 //     CODE(
 //         RAW(0, #include <stdio.h>)
-//         RAW()
+//         RAW(0, )
 //         RAW(0, int main(int argc, char **argv){)
 //         RAW(4,     printf("Hello, world!"))
 //         RAW(0, })
@@ -70,7 +69,7 @@
 #define LP()      &lpar;
 #define RP()      &rpar;
 #define BSLASH()  &bsol;
-#define SLASH()   &sol;     
+#define SLASH()   &sol;
 #define DSLASH()  &sol;&sol;
 #define LT()      &lt;
 #define AMP()     &amp;

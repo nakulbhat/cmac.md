@@ -1,0 +1,32 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "html_macros.h"
+#include "html_string.h"
+#include "html_render.h"
+#include "html_validate.h"
+
+int main(void){
+    STRING raw = {0}, out = {0};
+
+    BODY(raw,
+        PARA(Hello, BOLD(world) and CODEINLINE(a < b).)
+        CODE(
+            RAW(0, #include <stdio.h>)
+            RAW(0, )
+            RAW(0, int main(void){)
+            RAW(4, puts("hi");)
+            RAW(0, })
+        )
+    );
+
+    render(&out, raw.str);
+    puts(out.str);
+
+    int errors = validate_html(out.str);
+    puts(errors ? "invalid html" : "valid html");
+
+    free(raw.str);
+    free(out.str);
+    return errors ? EXIT_FAILURE : EXIT_SUCCESS;
+}
