@@ -5,19 +5,55 @@
 
 #include "html_validate.h"
 
-enum { C_ROOT = 1, C_BLOCK = 2, C_INLINE = 4, C_CODE = 8, T_TEXT = 16 };
+enum { 
+    C_ROOT       = 1 << 0,
+    C_BLOCK      = 1 << 1,
+    C_INLINE     = 1 << 2,
+    C_CODE       = 1 << 3,
+    T_TEXT       = 1 << 4,
+    C_VOID       = 1 << 5,
+    C_HTML_CHILD = 1 << 6,
+    C_HEAD_CHILD = 1 << 7 
+};
 
 static const struct { const char *name; unsigned cat, allows; } TAGS[] = {
-    // name    category             may contain
-    { "body", C_ROOT,              C_BLOCK | C_INLINE | T_TEXT },
-    { "p",    C_BLOCK,             C_INLINE | T_TEXT },
-    { "pre",  C_BLOCK,             C_CODE },               // only <code>, no text
-    { "code", C_INLINE | C_CODE,   T_TEXT },               // text only
-    { "b",    C_INLINE,            C_INLINE | T_TEXT },
-    { "i",    C_INLINE,            C_INLINE | T_TEXT },
-    { "em",   C_INLINE,            C_INLINE | T_TEXT },
-    { "s",    C_INLINE,            C_INLINE | T_TEXT },
-    { "a",    C_INLINE,            C_INLINE | T_TEXT },
+    // name         category                    may contain
+    { "html",       C_ROOT,                     C_HTML_CHILD },
+    { "head",       C_HTML_CHILD,               C_HEAD_CHILD | T_TEXT },
+    { "body",       C_HTML_CHILD,               C_BLOCK | C_INLINE | T_TEXT },
+    
+    // Head children
+    { "title",      C_HEAD_CHILD,               T_TEXT },
+    { "meta",       C_HEAD_CHILD | C_VOID,      0 },
+    { "style",      C_HEAD_CHILD,               T_TEXT },  // Or a custom text/code category
+    { "link",       C_HEAD_CHILD | C_VOID,      0 },
+    { "script",     C_HEAD_CHILD | C_BLOCK,     T_TEXT },  // Can be in head or body
+    
+    // Structural / Blocks
+    { "p",          C_BLOCK,                    C_INLINE | T_TEXT },
+    { "h1",         C_BLOCK,                    C_INLINE | T_TEXT },
+    { "h2",         C_BLOCK,                    C_INLINE | T_TEXT },
+    { "h3",         C_BLOCK,                    C_INLINE | T_TEXT },
+    { "h4",         C_BLOCK,                    C_INLINE | T_TEXT },
+    { "h5",         C_BLOCK,                    C_INLINE | T_TEXT },
+    { "h6",         C_BLOCK,                    C_INLINE | T_TEXT },
+    { "ul",         C_BLOCK,                    C_BLOCK | T_TEXT },
+    { "ol",         C_BLOCK,                    C_BLOCK | T_TEXT },
+    { "li",         C_BLOCK | C_INLINE,         C_BLOCK | C_INLINE | T_TEXT },
+    { "div",        C_BLOCK,                    C_BLOCK | C_INLINE | T_TEXT },
+    { "blockquote", C_BLOCK,                    C_BLOCK | C_INLINE | T_TEXT },
+    { "hr",         C_BLOCK  | C_VOID,          0 },
+
+    // Inlines / Void / Code
+    { "span",       C_INLINE,                   C_INLINE | T_TEXT },
+    { "img",        C_INLINE | C_VOID,          0 },
+    { "pre",        C_BLOCK,                    C_CODE },
+    { "code",       C_INLINE | C_CODE,          T_TEXT },
+    { "b",          C_INLINE,                   C_INLINE | T_TEXT },
+    { "i",          C_INLINE,                   C_INLINE | T_TEXT },
+    { "em",         C_INLINE,                   C_INLINE | T_TEXT },
+    { "s",          C_INLINE,                   C_INLINE | T_TEXT },
+    { "a",          C_INLINE,                   C_INLINE | T_TEXT },
 };
 
 #define NTAGS (sizeof TAGS / sizeof TAGS[0])
@@ -70,6 +106,14 @@ static void parse_content(PARSER *ps, int parent){
         if(*start == '<'){
             text_reported = 0;
             const char *p = start + 1;
+
+            // Ignore DOCTYPE and comments (<!...)
+            if(*p == '!'){
+                while(*ps->p && *ps->p != '>') ps->p++;
+                if(*ps->p == '>') ps->p++;
+                continue;
+            }
+            
             int closing = (*p == '/');
             if(closing) p++;
 
@@ -114,12 +158,16 @@ static void parse_content(PARSER *ps, int parent){
             if(!(TAGS[t].cat & allowed))
                 report_error(ps, start, "<%s> is not allowed inside %s", TAGS[t].name, pname);
 
-            int is_a = !strcmp(TAGS[t].name, "a");
-            if(is_a && ps->in_a) report_error(ps, start, "<a> nested inside <a>");
             ps->last = start;
-            ps->in_a += is_a;
-            parse_content(ps, t);             // recurse into the child
-            ps->in_a -= is_a;
+
+            // If it's a void tag, do NOT recurse into parse_content looking for a closer!
+            if (!(TAGS[t].cat & C_VOID)) {
+                int is_a = !strcmp(TAGS[t].name, "a");
+                if(is_a && ps->in_a) report_error(ps, start, "<a> nested inside <a>");
+                ps->in_a += is_a;
+                parse_content(ps, t);           
+                ps->in_a -= is_a;
+            }
         }
         else if(*start == '&'){
             const char *p = start + 1;

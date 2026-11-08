@@ -16,12 +16,17 @@
 
 
 /********************************L2 Macros*************************************/
-// BODY will be the highest level macro that can be written in function (page)
-// bodies
-#define BODY(html_string, ...)                                 \
-    append_string(&html_string,                                \
-                  "<body>" _STRINGIZE(__VA_ARGS__) "</body>")
+// HEAD_SECTION and BODY_SECTION will be the highest level macro that can be
+// written in function (page) bodies
+#define HEAD_SECTION(html_string, ...) \
+    append_string(&html_string, "<!DOCTYPE html><html><head>" _STRINGIZE(__VA_ARGS__) "</head>")
 
+#define BODY_SECTION(html_string, ...) \
+    append_string(&html_string, "<body>" _STRINGIZE(__VA_ARGS__) "</body></html>")
+
+#define HEAD(...) <head>__VA_ARGS__</head>
+#define TITLE(...) <title>__VA_ARGS__</title>
+#define META(attr) <meta attr>
 
 /********************************L1 Macros*************************************/
 #define PARA(...) <p>__VA_ARGS__</p>
@@ -74,6 +79,46 @@
 #define ID(x)     ATTR(id, #x)
 #define CLASS(x)  ATTR(class, #x)
 
+// Headings
+#define H1(...) <h1>__VA_ARGS__</h1>
+#define H2(...) <h2>__VA_ARGS__</h2>
+#define H3(...) <h3>__VA_ARGS__</h3>
+#define H4(...) <h4>__VA_ARGS__</h4>
+#define H5(...) <h5>__VA_ARGS__</h5>
+#define H6(...) <h6>__VA_ARGS__</h6>
+
+// Lists
+#define UL(...) <ul>__VA_ARGS__</ul>
+#define OL(...) <ol>__VA_ARGS__</ol>
+#define LI(...) <li>__VA_ARGS__</li>
+
+// Generic Containers
+#define DIV(...)  <div>__VA_ARGS__</div>
+#define SPAN(...) <span>__VA_ARGS__</span>
+
+// Blockquotes & Layout
+#define BLOCKQUOTE(...) <blockquote>__VA_ARGS__</blockquote>
+#define HR() <hr>
+
+// IMG("path", "alt text", CLASS(x) ...)   (attributes, if any, come last)
+// Void element: expands to <img> followed by attributes, which render splices
+// into the tag. Both src and alt must be string literals. For a purely
+// decorative image, pass "" as the alt text.
+#define IMG(src_, alt_, ...)  <img> ATTR(src, src_) ATTR(alt, alt_) __VA_ARGS__
+
+/********************************CSS & JS Macros*************************************/
+// Inline CSS style block (uses RAW to prevent HTML escaping inside the stylesheet)
+#define STYLE(...)          <style>__VA_ARGS__</style>
+
+// External CSS stylesheet link
+#define LINK_CSS(href_path)   <link rel="stylesheet" href=href_path>
+
+// Inline JavaScript block
+#define SCRIPT_INLINE(...)  <script>__VA_ARGS__</script>
+
+// External JavaScript source link
+#define SCRIPT_SRC(src_path)  <script src=src_path></script>
+
 /********************************L0 Macros*************************************/
 #define SQ()      &apos;
 #define DQ()      &quot;
@@ -87,5 +132,8 @@
 #define NBSP()    &nbsp;
 #define ENT(name) &name;
 
+// Unbalanced parens inside RAW/CODE: expand to an inert marker that render() converts
+#define LPAR  RAW_LP_
+#define RPAR  RAW_RP_
 
 #endif

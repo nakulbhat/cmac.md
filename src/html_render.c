@@ -4,14 +4,27 @@
 #include "html_render.h"
 #include "internal.h"
 
-static void append_escaped_html_string(STRING *s, const char *in, size_t len){
+static void append_escaped_html_string(STRING *s, const char *in, size_t len, int escape){
+    size_t floor = s->len;
     for(size_t i = 0; i < len; i++){
-        switch(in[i]){
-        case '<': append_string(s, "&lt;");  break;
-        case '>': append_string(s, "&gt;");  break;
-        case '&': append_string(s, "&amp;"); break;
-        default:  append_char(s, in[i]);
+        if(len - i >= 7 && (!memcmp(in + i, "RAW_LP_", 7) ||
+                            !memcmp(in + i, "RAW_RP_", 7))){
+            int lp = (in[i + 4] == 'L');
+            while(s->len > floor && s->str[s->len - 1] == ' ') s->len--;
+            s->str[s->len] = '\0';
+            append_char(s, lp ? '(' : ')');
+            i += 6;
+            if(lp && i + 1 < len && in[i + 1] == ' ') i++;  // also fixes "( 'x'" spacing
+            continue;
         }
+        if(escape){
+            switch(in[i]){
+            case '<': append_string(s, "&lt;");  continue;
+            case '>': append_string(s, "&gt;");  continue;
+            case '&': append_string(s, "&amp;"); continue;
+            }
+        }
+        append_char(s, in[i]);
     }
 }
 
@@ -111,7 +124,7 @@ static void append_file_range(STRING *out, const char *path,
     }
 
     if(to < from) to = from;
-    append_escaped_html_string(out, from, (size_t)(to - from));
+    append_escaped_html_string(out, from, (size_t)(to - from), 1);
     if(to > from && to[-1] != '\n') append_char(out, '\n');
     free(buf);
 }
@@ -137,8 +150,8 @@ void render(STRING *out, const char *in){
     // Tag tracking, used to decide whether an ATTR is legal at this point.
     // can_attr is set right after an opening tag's '>' and cleared by anything
     // that isn't whitespace or another ATTR. gt_pos is where that '>' sits in out.
-    int in_tag = 0, closing = 0, can_attr = 0;
-    size_t gt_pos = 0;
+    int in_tag = 0, closing = 0, can_attr = 0, rawtext = 0;
+    size_t gt_pos = 0, tag_start = 0;
 
     while(*in){
         if(!strncmp(in, RB, rb)){ // Regular RAW macro
@@ -166,7 +179,7 @@ void render(STRING *out, const char *in){
 
             size_t len = (size_t)(end - in);
             if(len && end[-1] == ' ') len--; // defensively remove space before "RAW_E_"
-            append_escaped_html_string(out, in, len);
+            append_escaped_html_string(out, in, len, !rawtext);
 
             append_char(out, '\n');
             in = end + strlen("RAW_E_");
@@ -184,7 +197,7 @@ void render(STRING *out, const char *in){
             size_t len = (size_t)(end - in);
             if(len && in[0] == '\n'){ in++; len--; }
             if(len && in[len-1] == '\n') len--;
-            append_escaped_html_string(out, in, len);
+            append_escaped_html_string(out, in, len, !rawtext);
             append_char(out, '\n');
             in = end + ge;
         }
@@ -195,7 +208,7 @@ void render(STRING *out, const char *in){
             in += ib;
             const char *end = strstr(in, IE);
             if(!end) ERROR("unterminated CODEINLINE");
-            append_escaped_html_string(out, in, (size_t)(end - in));
+            append_escaped_html_string(out, in, (size_t)(end - in), !rawtext);
             in = end + ie;
         }
         else if(!strncmp(in, FB, fb)){ // File RAW
@@ -266,6 +279,7 @@ void render(STRING *out, const char *in){
                 in_tag = 1;
                 closing = (*in == '/' || *in == '!');
                 can_attr = 0;
+                tag_start = out->len;      // where '<' is about to be written
             }
 
             append_char(out, c);
@@ -274,6 +288,14 @@ void render(STRING *out, const char *in){
                 in_tag = 0;
                 can_attr = !closing;
                 gt_pos = out->len - 1;
+
+                // Entering or leaving <script>/<style>? Their contents are
+                // raw text: the browser doesn't decode entities there.
+                const char *t = out->str + tag_start + 1;
+                int is_close = (*t == '/');
+                if(is_close) t++;
+                if(!strncmp(t, "script", 6) || !strncmp(t, "style", 5))
+                    rawtext = !is_close;
             }
             else if(!in_tag && !isspace((unsigned char)c)){
                 can_attr = 0; // text between the tag and ATTR_B_: too late

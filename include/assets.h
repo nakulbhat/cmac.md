@@ -8,6 +8,6 @@
 void write_asset(const char *path, const unsigned char *data, size_t len);
 
 // `arr` must be an actual array (not a pointer), so sizeof gives its byte count.
-#define ASSET(path, arr)  write_asset(path, arr, sizeof(arr))
-
+#define ASSET(path, arr)      write_asset(path, arr, sizeof(arr))
+#define ASSET_STR(path, arr)  write_asset(path, (const unsigned char *)(arr), sizeof(arr) - 1)
 #endif
